@@ -78,3 +78,7 @@ claude plugin validate .
 ```
 
 After changing a plugin, bump `version` in its `.claude-plugin/plugin.json` so other machines pick up the update with `claude plugin update <plugin>@local-mods`.
+
+## License
+
+[MIT](LICENSE). The software is provided as is, without warranty of any kind, and the author is not liable for any damage arising from its use.

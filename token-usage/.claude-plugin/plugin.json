@@ -1,9 +1,10 @@
 {
   "name": "token-usage",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A pane showing context fill, session token totals, cost and rate limits",
   "author": {
     "name": "Marlon Santos"
   },
+  "license": "MIT",
   "types": "./types/index.d.ts"
 }
