@@ -23,10 +23,7 @@ A personal Claude Code plugin marketplace of terminal UI mods: a status band abo
 
 Renders above the prompt in every session:
 
-```
-[Opus 5.5 (1M context)] │ local-mods git:(master*)
-Context ██░░░░░░░░ 18% │ Usage █░░░░░░░░░ 10% (resets in 2h 5m)
-```
+![The prompt-status band: model and context window, directory and git branch on the first line; context fill and five-hour usage bars with the reset time on the second](docs/prompt-status.png)
 
 - The model name comes from the latest main-agent request, falling back to the `model` setting.
 - Usage shows the five-hour rate limit when it is reported, otherwise the fullest limit.
@@ -36,6 +33,8 @@ Context ██░░░░░░░░ 18% │ Usage █░░░░░░░░
 ### token-usage
 
 Opens a pane at session start. Run `/token-usage` to reopen it. The pane shows:
+
+![The token-usage pane: a context fill bar at 11% of a 1M window, session input, output and cache totals with the request count and cost, and the model and token counts of the last request](docs/token-usage.png)
 
 - **Context**: fill bar, percentage and tokens used out of the window.
 - **Session**: input, output, cache read and cache write tokens, the request count with subagent requests counted separately, and cost.
@@ -47,6 +46,8 @@ Running `/clear` resets the session totals.
 ### git-changes
 
 Opens a pane in interactive sessions. Run `/changes` to reopen it and print a summary. The pane lists every file that differs from `HEAD`, whether staged, unstaged or untracked:
+
+![The git-changes pane on branch master: 3 files changed, +3 -4; a modified README.md marked as just changed with its diff counts and stat bar, and two untracked PNG files shown as bin](docs/git-changes.png)
 
 - A status letter for each file (`M`, `A`, `D`, `R`, `??`, …), `+added` / `-deleted` counts and a `git --stat`-style bar. Binary files show `bin`.
 - A `●` marker on files whose stats changed since the previous scan.
