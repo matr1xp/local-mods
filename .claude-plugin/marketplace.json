@@ -1,0 +1,18 @@
+{
+  "name": "local-mods",
+  "owner": {
+    "name": "Marlon Santos"
+  },
+  "plugins": [
+    {
+      "name": "token-usage",
+      "source": "./token-usage",
+      "description": "A pane showing context fill, session token totals, cost and rate limits"
+    },
+    {
+      "name": "prompt-status",
+      "source": "./prompt-status",
+      "description": "Two-line status above the prompt: model, directory, git branch, context fill and rate-limit usage"
+    }
+  ]
+}
