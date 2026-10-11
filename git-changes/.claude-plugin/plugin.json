@@ -1,0 +1,6 @@
+{
+  "name": "git-changes",
+  "version": "0.1.0",
+  "description": "A side pane listing the files changed in the working tree, with colored git diff stats",
+  "types": "./types/index.d.ts"
+}

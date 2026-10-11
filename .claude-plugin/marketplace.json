@@ -13,6 +13,11 @@
       "name": "prompt-status",
       "source": "./prompt-status",
       "description": "Two-line status above the prompt: model, directory, git branch, context fill and rate-limit usage"
+    },
+    {
+      "name": "git-changes",
+      "source": "./git-changes",
+      "description": "A side pane listing the files changed in the working tree, with colored git diff stats"
     }
   ]
 }
