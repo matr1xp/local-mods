@@ -3,6 +3,7 @@
   "owner": {
     "name": "Marlon Santos"
   },
+  "description": "Claude Code terminal UI mods: a status band above the prompt and side panes for token usage and git changes",
   "plugins": [
     {
       "name": "token-usage",

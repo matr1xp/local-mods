@@ -17,8 +17,6 @@ A personal Claude Code plugin marketplace of terminal UI mods: a status band abo
 /plugin install git-changes@local-mods
 ```
 
-The repository is private, so the machine needs GitHub access to `matr1xp/local-mods`.
-
 ## Plugins
 
 ### prompt-status
