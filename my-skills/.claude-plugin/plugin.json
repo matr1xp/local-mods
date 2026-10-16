@@ -1,0 +1,9 @@
+{
+  "name": "my-skills",
+  "version": "0.1.0",
+  "description": "Personal skills shared across machines",
+  "author": {
+    "name": "Marlon Santos"
+  },
+  "license": "MIT"
+}

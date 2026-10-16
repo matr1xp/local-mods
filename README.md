@@ -1,12 +1,13 @@
 # local-mods
 
-A personal Claude Code plugin marketplace of terminal UI mods: a status band above the prompt and two side panes.
+A personal Claude Code plugin marketplace: terminal UI mods (a status band above the prompt and two side panes) and a plugin of skills shared across machines.
 
 | Plugin | What it adds | Command |
 | --- | --- | --- |
 | [`prompt-status`](prompt-status) | A two-line band above the prompt: model and context window, current directory, git branch, context fill and rate-limit usage | — |
 | [`token-usage`](token-usage) | A pane with context fill, session token totals, cost and rate limits | `/token-usage` |
 | [`git-changes`](git-changes) | A pane listing the files changed in the working tree, with colored git diff stats | `/changes` |
+| [`my-skills`](my-skills) | Personal skills shared across machines | `/my-skills:<skill>` |
 
 ## Install
 
@@ -15,6 +16,7 @@ A personal Claude Code plugin marketplace of terminal UI mods: a status band abo
 /plugin install prompt-status@local-mods
 /plugin install token-usage@local-mods
 /plugin install git-changes@local-mods
+/plugin install my-skills@local-mods
 ```
 
 ## Plugins
@@ -54,6 +56,12 @@ Opens a pane in interactive sessions. Run `/changes` to reopen it and print a su
 - The pane rescans after `Edit`, `Write`, `NotebookEdit` and `Bash` tool calls, and every 4 seconds while it is on screen. Press `r` to refresh by hand.
 - Git runs with `GIT_OPTIONAL_LOCKS=0`, so polling never holds `index.lock` while you run your own git commands.
 - Only the first 40 untracked files get line counts. The rest show as `new`.
+
+### my-skills
+
+A home for personal skills, so they install on every machine like the other plugins. Each skill is a folder under `my-skills/skills/` with a `SKILL.md`, and is invoked as `/my-skills:<skill>`. Claude also loads a skill on its own when a request matches its `description`.
+
+To add a skill, copy `my-skills/skills/example/` to `my-skills/skills/<name>/`, set `name` in the frontmatter to match the folder, and rewrite the description and body.
 
 ## Layout
 

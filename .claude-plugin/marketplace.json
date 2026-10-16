@@ -3,7 +3,7 @@
   "owner": {
     "name": "Marlon Santos"
   },
-  "description": "Claude Code terminal UI mods: a status band above the prompt and side panes for token usage and git changes",
+  "description": "Personal Claude Code plugins: terminal UI mods (a status band above the prompt, side panes for token usage and git changes) and shared skills",
   "plugins": [
     {
       "name": "token-usage",
@@ -19,6 +19,11 @@
       "name": "git-changes",
       "source": "./git-changes",
       "description": "A side pane listing the files changed in the working tree, with colored git diff stats"
+    },
+    {
+      "name": "my-skills",
+      "source": "./my-skills",
+      "description": "Personal skills shared across machines"
     }
   ]
 }
