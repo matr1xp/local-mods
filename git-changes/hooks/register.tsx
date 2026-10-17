@@ -84,7 +84,7 @@ async function countUntracked($: EngineInterface, root: string, path: string): P
 async function scan($: EngineInterface): Promise<Omit<Snapshot, 'fresh' | 'changedAt'>> {
   const top = await git($, ['rev-parse', '--show-toplevel'])
   if (top.exitCode !== 0) {
-    return { branch: '', files: [], error: 'Not a git repository' }
+    return { root: '', branch: '', files: [], error: 'Not a git repository' }
   }
   const root = top.stdout.trim()
 
@@ -101,7 +101,7 @@ async function scan($: EngineInterface): Promise<Omit<Snapshot, 'fresh' | 'chang
     git($, ['ls-files', '--others', '--exclude-standard', '-z'], root),
   ])
   if (numstat.exitCode !== 0) {
-    return { branch, files: [], error: numstat.stderr.trim() || 'git diff failed' }
+    return { root, branch, files: [], error: numstat.stderr.trim() || 'git diff failed' }
   }
 
   const stats = parseNumstat(numstat.stdout)
@@ -121,7 +121,19 @@ async function scan($: EngineInterface): Promise<Omit<Snapshot, 'fresh' | 'chang
     files.push({ path, status: '?', ...stat })
   })
 
-  return { branch, files, error: null }
+  return { root, branch, files, error: null }
+}
+
+// Opens a file in its default app: `open` on macOS, `xdg-open` where there is none.
+async function openFile($: EngineInterface, root: string, path: string) {
+  const abs = `${root}/${path}`
+  try {
+    const ran = await $.process.run(['open', abs], { timeoutMs: 10_000 })
+    if (ran.exitCode === 0) return
+  } catch {
+    // no `open` here: try the freedesktop one
+  }
+  await $.process.run(['xdg-open', abs], { timeoutMs: 10_000 }).catch(() => undefined)
 }
 
 const signature = (file: ChangedFile) => `${file.status}|${file.added}|${file.deleted}`
@@ -131,12 +143,13 @@ async function scanAndStore($: EngineInterface) {
   try {
     next = await scan($)
   } catch (error) {
-    next = { branch: '', files: [], error: error instanceof Error ? error.message : String(error) }
+    next = { root: '', branch: '', files: [], error: error instanceof Error ? error.message : String(error) }
   }
   const prev = await read($, snapshot)
   const prevByPath = new Map(prev?.files.map(file => [file.path, signature(file)]))
   const isSame =
     prev !== null &&
+    prev.root === next.root &&
     prev.branch === next.branch &&
     prev.error === next.error &&
     prev.files.length === next.files.length &&
@@ -284,6 +297,12 @@ export const register: Register = on => {
       const slash = file.path.lastIndexOf('/')
       const dir = file.path.slice(0, slash + 1)
       const name = file.path.slice(slash + 1)
+      const label = (
+        <Text wrap="truncate-start" bold={isFresh}>
+          <Text dimColor>{dir}</Text>
+          {name}
+        </Text>
+      )
       return (
         <Box flexDirection="row">
           <Text color="claude">{isFresh ? '●' : ' '}</Text>
@@ -291,10 +310,14 @@ export const register: Register = on => {
             {(file.status === '?' ? '??' : file.status).padEnd(2)}{' '}
           </Text>
           <Box width={pathWidth}>
-            <Text wrap="truncate-start" bold={isFresh}>
-              <Text dimColor>{dir}</Text>
-              {name}
-            </Text>
+            {/* A deleted file has nothing left on disk to open. */}
+            {file.status === 'D' ? (
+              label
+            ) : (
+              <Button key={`open:${file.path}`} plain onPress={() => openFile($, snap.root, file.path)}>
+                {label}
+              </Button>
+            )}
           </Box>
           <Text> </Text>
           <Text color={file.added === null ? 'subtle' : 'success'} bold={isFresh}>

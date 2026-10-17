@@ -54,6 +54,7 @@ Opens a pane in interactive sessions. Run `/changes` to reopen it and print a su
 
 - A status letter for each file (`M`, `A`, `D`, `R`, `??`, …), `+added` / `-deleted` counts and a `git --stat`-style bar. Binary files show `bin`.
 - A `●` marker on files whose stats changed since the previous scan.
+- Click a file, or focus it and press Enter, to open it in its default app (`open` on macOS, `xdg-open` on Linux). Deleted files are not clickable.
 - The pane rescans after `Edit`, `Write`, `NotebookEdit` and `Bash` tool calls, and every 4 seconds while it is on screen. Press `r` to refresh by hand.
 - Git runs with `GIT_OPTIONAL_LOCKS=0`, so polling never holds `index.lock` while you run your own git commands.
 - Only the first 40 untracked files get line counts. The rest show as `new`.

@@ -22,8 +22,13 @@ const CHANGES = {
 } as const
 
 // A fake repo: a modified, a deleted, a binary, a renamed and an untracked file.
-function fakeGit(on: On, numstat: { current: string }) {
+// `opened` collects what a press handed to `open`.
+function fakeGit(on: On, numstat: { current: string }, opened: string[] = []) {
   on('process.run', ($, e) => {
+    if (e.argv[0] === 'open') {
+      opened.push(e.argv.slice(1).join(' '))
+      return ok('')
+    }
     const args = e.argv.slice(1).join(' ')
     if (args === 'rev-parse --show-toplevel') return ok('/repo\n')
     if (args === 'symbolic-ref --short -q HEAD') return ok('feature/x\n')
@@ -73,6 +78,29 @@ test('the pane lists each file with colored stats on every surface', async ($, o
     expect((await ui.find({ type: 'Text', text: 'D ' }))?.props.color).toBe('error')
     await ui.unmount()
   }
+})
+
+test('pressing a file opens it in its default app on every surface', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  const opened: string[] = []
+  fakeGit(on, { current: NUMSTAT }, opened)
+  await $.command.run(CHANGES)
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({
+      plugin: 'git-changes',
+      surface,
+      component: 'Pane',
+      requestId: 'git-changes',
+      props: PANE_PROPS,
+    })
+    const keys = (await ui.findAll({ type: 'Button' })).map(button => button.key).filter(key => key?.startsWith('open:'))
+    // old.ts is deleted, so it is the one file that cannot be opened.
+    expect(keys).toEqual(['open:b.ts', 'open:logo.png', 'open:src/app.ts', 'open:notes.md'])
+    await ui.press({ key: 'open:src/app.ts' })
+    await ui.unmount()
+  }
+  expect(opened).toEqual(['/repo/src/app.ts', '/repo/src/app.ts'])
 })
 
 test('a file whose stats move is highlighted until the next change', async ($, on) => {

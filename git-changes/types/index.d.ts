@@ -15,6 +15,8 @@ export type ChangedFile = {
 }
 
 export type Snapshot = {
+  /** The repository's top level, absolute; '' when the scan failed. */
+  root: string
   branch: string
   files: ChangedFile[]
   /** Paths whose stats changed in the latest scan that found a difference. */
