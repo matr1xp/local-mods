@@ -1,6 +1,6 @@
 {
   "name": "prompt-status",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Two-line status above the prompt: model, directory, git branch, context fill and rate-limit usage",
   "author": {
     "name": "Marlon Santos"

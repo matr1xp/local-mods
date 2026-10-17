@@ -1,5 +1,6 @@
 // The animated context bar: a flame drawn as Raster cells, plus the odometer
-// easing for the cost. Adapted from burn-meter (OneWave-AI/claude-code-mods, MIT).
+// easing for the cost. Adapted from burn-meter (OneWave-AI/claude-code-mods, MIT);
+// the same file lives in prompt-status, so keep the two in step.
 
 export const FIRE_ROWS = 3
 

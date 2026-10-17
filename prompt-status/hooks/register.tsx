@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionRateLimit } from 'claude-code'
 
 import type { Git, Limit, Reading } from '../types'
+import { FIRE_ROWS, fireCells, tween } from './fire'
 
 const BAR_WIDTH = 10
 const TICK_MS = 60_000
@@ -22,6 +23,48 @@ const EMPTY: Reading = { model: null, contextWindow: null, contextPercent: null,
 const reading = atom({ plugin: 'prompt-status', key: 'reading' } as const, EMPTY)
 const git = atom({ plugin: 'prompt-status', key: 'git' } as const, null)
 const now = atom({ plugin: 'prompt-status', key: 'now' } as const, 0)
+// The context fill the flame draws while it eases toward the reading.
+const shown = atom({ plugin: 'prompt-status', key: 'shown' } as const, 0)
+
+let tweenTimer: { cancel: () => void } | null = null
+let fireTimer: { cancel: () => void } | null = null
+let bandId: string | null = null
+
+/** Eases `shown` toward the context reading, 20 frames a second, and stops once it lands. */
+const startTween = ($: EngineInterface) => {
+  if (tweenTimer) return
+  const timer = $.clock.every(50, () => {
+    void Promise.all([read($, shown), read($, reading)]).then(async ([s, r]) => {
+      const target = r.contextPercent ?? 0
+      if (s === target) {
+        timer.cancel()
+        if (tweenTimer === timer) tweenTimer = null
+        return
+      }
+      await update($, shown, x => tween(x, target))
+    })
+  })
+  tweenTimer = timer
+}
+
+/** Animates the context flame while the band is mounted; stops once a blit is refused. */
+const startFire = ($: EngineInterface) => {
+  if (fireTimer) return
+  const timer = $.clock.every(80, () => {
+    if (!bandId) return
+    void Promise.all([read($, shown), $.clock.now()]).then(([s, ms]) =>
+      $.ui
+        .blit({ requestId: bandId!, key: 'fire', cells: fireCells(BAR_WIDTH, s, ms / 1000) })
+        .then(r => {
+          if (r.deny && fireTimer === timer) {
+            timer.cancel()
+            fireTimer = null
+          }
+        }),
+    )
+  })
+  fireTimer = timer
+}
 
 const FAMILIES = ['opus', 'sonnet', 'haiku', 'fable']
 
@@ -107,6 +150,7 @@ export const register: Register = on => {
       contextPercent: usage.context.percent ?? null,
       limit: pickLimit(usage.rateLimits),
     }))
+    startTween($)
     await refresh($)
     $.clock.every(TICK_MS, () => refresh($))
 
@@ -130,6 +174,7 @@ export const register: Register = on => {
     }))
     const nowMs = await $.clock.now()
     await update($, now, () => nowMs)
+    startTween($)
 
     return next(e)
   })
@@ -143,7 +188,9 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
 
-    const { Box, Text } = $.ui.resolve(e)
+    const elements = $.ui.resolve(e)
+    const { Box, Text } = elements
+    const Raster = 'Raster' in elements ? elements.Raster : null
     const r = await read($, reading)
     const g = await read($, git)
     const nowMs = await read($, now)
@@ -155,6 +202,21 @@ export const register: Register = on => {
     const contextPercent = r.contextPercent === null ? null : Math.round(r.contextPercent)
     const usagePercent = r.limit === null ? null : Math.round(r.limit.percentUsed)
     const reset = r.limit ? untilReset(r.limit.resetsAt, nowMs || (await $.clock.now())) : ''
+    const isBurning = Raster !== null && e.surface === 'terminal' && contextPercent !== null
+
+    if (isBurning) {
+      bandId = e.requestId
+      startFire($)
+    }
+    const flame =
+      Raster !== null && isBurning ? (
+        <Raster
+          key="fire"
+          columns={BAR_WIDTH}
+          rows={FIRE_ROWS}
+          cells={fireCells(BAR_WIDTH, await read($, shown), (await $.clock.now()) / 1000)}
+        />
+      ) : null
 
     const bar = (percent: number, color: string) => (
       <Box>
@@ -178,13 +240,13 @@ export const register: Register = on => {
             </Text>
           )}
         </Box>
-        <Box>
+        <Box alignItems="flex-end">
           <Text color={COLOR.label}>Context </Text>
           {contextPercent === null ? (
             <Text color={COLOR.label}>–</Text>
           ) : (
-            <Box>
-              {bar(contextPercent, COLOR.context)}
+            <Box alignItems="flex-end">
+              {flame ?? bar(contextPercent, COLOR.context)}
               <Text color={COLOR.context}> {contextPercent}%</Text>
             </Box>
           )}

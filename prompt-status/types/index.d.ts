@@ -15,6 +15,7 @@ declare module 'claude-code' {
       reading: Reading
       git: Git | null
       now: number
+      shown: number
     }
   }
 }
