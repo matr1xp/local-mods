@@ -38,7 +38,7 @@ Opens a pane at session start. Run `/token-usage` to reopen it. The pane shows:
 
 ![The token-usage pane: a context fill bar at 11% of a 1M window, session input, output and cache totals with the request count and cost, and the model and token counts of the last request](docs/token-usage.png)
 
-- **Context**: fill bar, percentage and tokens used out of the window. In the terminal the bar is an animated flame that grows taller and redder as the context fills (adapted from [burn-meter](https://github.com/OneWave-AI/claude-code-mods)); elsewhere it is a plain text bar.
+- **Context**: fill bar, percentage and tokens used out of the window. In the terminal the bar is an animated green flame that grows taller and deeper green as the context fills (adapted from [burn-meter](https://github.com/OneWave-AI/claude-code-mods)); elsewhere it is a plain text bar.
 - **Session**: input, output, cache read and cache write tokens, the request count with subagent requests counted separately, and cost. The cost rolls up to each new reading like an odometer.
 - **Last request**: model and token counts for the most recent request.
 - **Rate limits**: the 5h, 7d and spend limits with reset times. Each bar turns yellow at 60% and red at 85%.

@@ -4,12 +4,13 @@
 export const FIRE_ROWS = 3
 
 const DEFAULT = 0x01000000
-const GOLD = 0xc2a87e
-const YELLOW = 0xffd166
-const ORANGE = 0xe8833a
-const RED = 0xe5484d
-const WHITE = 0xfff4e0
-const EMPTY = 0x2a2724
+const MOSS = 0x7fa88a
+const LIME = 0xbef264
+const GREEN = 0x4ade80
+const EMERALD = 0x16a34a
+const PINE = 0x0b5d2e
+const MINT = 0xecfdf3
+const EMPTY = 0x232a25
 
 // ' ▁▂▃▄▅▆▇█' by eighths.
 const EIGHTHS = [0x20, 0x2581, 0x2582, 0x2583, 0x2584, 0x2585, 0x2586, 0x2587, 0x2588]
@@ -33,16 +34,16 @@ const mix = (a: number, b: number, t: number): number => {
   return (ch(16) << 16) | (ch(8) << 8) | ch(0)
 }
 
-/** Gold, then orange, then red as `heat` goes 0..1. */
+/** Moss, then green, then emerald as `heat` goes 0..1. */
 const flame = (heat: number) =>
-  heat < 0.5 ? mix(GOLD, ORANGE, heat * 2) : mix(ORANGE, RED, (heat - 0.5) * 2)
+  heat < 0.5 ? mix(MOSS, GREEN, heat * 2) : mix(GREEN, EMERALD, (heat - 0.5) * 2)
 
-/** White-hot base, yellow, orange, red tips, at height `y` 0..1 inside a flame. */
+/** Mint base, lime, green, deeper green tips, at height `y` 0..1 inside a flame. */
 const flameAt = (y: number, heat: number) => {
-  const tip = mix(ORANGE, RED, Math.min(1, 0.3 + heat))
-  if (y < 0.25) return mix(WHITE, YELLOW, y * 4)
-  if (y < 0.6) return mix(YELLOW, ORANGE, (y - 0.25) / 0.35)
-  return mix(ORANGE, tip, (y - 0.6) / 0.4)
+  const tip = mix(EMERALD, PINE, Math.min(1, 0.3 + heat))
+  if (y < 0.25) return mix(MINT, LIME, y * 4)
+  if (y < 0.6) return mix(LIME, GREEN, (y - 0.25) / 0.35)
+  return mix(GREEN, tip, (y - 0.6) / 0.4)
 }
 
 /** Cheap smooth noise from two beating sines, 0..1. */
@@ -52,7 +53,7 @@ const wobble = (x: number, t: number) =>
 /**
  * One frame of the context bar, `columns` wide and `rows` tall, at time `t`
  * in seconds: the bottom row filled to `percent`, flames dancing over the
- * filled part (tallest at the leading edge, taller and redder as it fills).
+ * filled part (tallest at the leading edge, taller and deeper green as it fills).
  */
 export const fireCells = (columns: number, percent: number, t: number, rows = FIRE_ROWS): string => {
   const heat = Math.min(1, Math.max(0, percent / 100))
@@ -73,7 +74,7 @@ export const fireCells = (columns: number, percent: number, t: number, rows = FI
     }
     const along = filled <= 1 ? 1 : x / (filled - 1)
     const isEdge = x === filled - 1
-    put(x, rows - 1, 0x2588, isEdge && Math.floor(t * 14) % 2 === 0 ? WHITE : mix(GOLD, flame(along * heat), along))
+    put(x, rows - 1, 0x2588, isEdge && Math.floor(t * 14) % 2 === 0 ? MINT : mix(MOSS, flame(along * heat), along))
     const lead = 1 - Math.min(1, (filled - 1 - x) / Math.max(4, filled * 0.6))
     const height = flameRows * 8 * Math.min(1, (0.35 + 0.4 * heat + 0.45 * lead) * (0.35 + 0.9 * wobble(x, t)))
     for (let y = 0; y < flameRows; y++) {
@@ -83,7 +84,7 @@ export const fireCells = (columns: number, percent: number, t: number, rows = FI
     }
     // A spark off the top now and then.
     if (height < 9 && wobble(x * 3.1, t * 1.7) > 0.86) {
-      put(x, 0, Math.floor(t * 10 + x) % 2 ? 0xb7 : 0x2a, mix(YELLOW, ORANGE, heat))
+      put(x, 0, Math.floor(t * 10 + x) % 2 ? 0xb7 : 0x2a, mix(LIME, GREEN, heat))
     }
   }
   return toBase64(new Uint8Array(words.buffer))
