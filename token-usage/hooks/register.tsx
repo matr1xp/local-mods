@@ -1,13 +1,13 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionMeasureInput, SessionUsage } from 'claude-code'
 
-import type { LastRequest, Shown, Snapshot, Totals } from '../types'
+import type { LastRequest, Limit, Shown, Snapshot, Totals } from '../types'
 import { FIRE_ROWS, fireCells, tween } from './fire'
 
 const PANE = 'token-usage'
 const TITLE = 'Token usage'
-// Widest line is the rate-limit row: "5h    ████████████ 23.5% ↻14:00".
-const COLUMNS = 34
+// The dock width asked for; the bars stretch to whatever width the pane gets.
+const COLUMNS = 48
 const OPEN = { id: PANE, title: TITLE, columns: COLUMNS } as const
 
 const EMPTY: Totals = {
@@ -180,12 +180,14 @@ export const register: Register = on => {
     const l = await read($, last)
     const s = await read($, snapshot)
     const sh = await read($, shown)
-    // Context row is "<bar> 100%"; limit rows add a 6-cell label and a reset time.
-    const width = Math.max(8, Math.min(24, e.props.bodyColumns - 6))
-    const limitWidth = Math.max(6, Math.min(12, e.props.bodyColumns - 19))
-
     const percent = s?.contextPercent
     const hasContext = s !== null && percent !== undefined
+    // The bars fill the row to the pane's edge. Context: "<bar> 48%". Limits:
+    // "5h    <bar> 23.5% ↻14:00", one bar width for all so their ends line up.
+    const columns = e.props.bodyColumns
+    const width = Math.max(8, columns - ` ${percent ?? 0}%`.length)
+    const limitTail = (r: Limit) => ` ${r.percentUsed}%${resetTime(r.resetsAt)}`.length
+    const limitWidth = Math.max(6, columns - 6 - Math.max(0, ...(s?.rateLimits ?? []).map(limitTail)))
     const isRolling = s?.costUsd !== undefined && sh.cost !== s.costUsd
     const isBurning = hasFire && hasContext
     const now = isBurning ? await $.clock.now() : 0

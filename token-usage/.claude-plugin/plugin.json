@@ -1,6 +1,6 @@
 {
   "name": "token-usage",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "A pane showing context fill, session token totals, cost and rate limits",
   "author": {
     "name": "Marlon Santos"

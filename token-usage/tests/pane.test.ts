@@ -62,7 +62,8 @@ test('pane adds up model requests and shows the latest measurement', async ($, o
     expect(await ui.find({ type: 'Text', text: /2 requests \(1 subagent\)/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /cost \$1\.23/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /Last request \(subagent\)/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /5h .* 23\.5%/ })).toBeDefined()
+    // The rate-limit bar stretches its row to the pane's edge.
+    expect((await ui.find({ type: 'Text', text: /5h .* 23\.5%/ }))?.text).toHaveLength(PANE.props.bodyColumns)
     await ui.unmount()
   }
 })
@@ -83,7 +84,8 @@ test('context bar burns as a flame on the terminal and stays text elsewhere', as
 
   const desktop = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect(await desktop.find({ type: 'Raster' })).toBeUndefined()
-  expect(await desktop.find({ type: 'Text', text: /█+░* 48%/ })).toBeDefined()
+  // The context bar stretches its row to the pane's edge.
+  expect((await desktop.find({ type: 'Text', text: /█+░* 48%/ }))?.text).toHaveLength(PANE.props.bodyColumns)
   await desktop.unmount()
 })
 
