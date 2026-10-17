@@ -76,6 +76,7 @@ test('the pane lists each file with colored stats on every surface', async ($, o
     expect(await ui.find({ type: 'Text', text: 'bin' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '+5' })).toBeDefined()
     expect((await ui.find({ type: 'Text', text: 'D ' }))?.props.color).toBe('error')
+    expect((await ui.find({ type: 'Button', key: 'refresh' }))?.props.label).toBe('↻ Refresh')
     await ui.unmount()
   }
 })

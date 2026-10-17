@@ -254,7 +254,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column">
           <Text color="error">{snap.error}</Text>
-          <Button key="refresh" label="Refresh" hotkey="r" onPress={() => refresh($)} />
+          <Button key="refresh" label="↻ Refresh" hotkey="r" onPress={() => refresh($)} />
         </Box>
       )
     }
@@ -368,7 +368,7 @@ export const register: Register = on => {
             {fresh.size > 0 && <Text color="claude">● </Text>}
             {fresh.size > 0 ? 'just changed · ' : ''}updated {clock(snap.changedAt)}{' '}
           </Text>
-          <Button key="refresh" label="Refresh" hotkey="r" onPress={() => refresh($)} />
+          <Button key="refresh" label="↻ Refresh" hotkey="r" onPress={() => refresh($)} />
         </Box>
       </Box>
     )
