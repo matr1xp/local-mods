@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
 const PANE = {
   plugin: 'token-usage',
@@ -24,6 +24,7 @@ const USAGE = {
 }
 
 test('pane adds up model requests and shows the latest measurement', async ($, on) => {
+  const clock = mock.clock(on)
   on('turn.step', async function* (_$, e) {
     return {
       turnId: e.turnId,
@@ -49,6 +50,8 @@ test('pane adds up model requests and shows the latest measurement', async ($, o
     cost: { usd: 1.234 },
     changed: ['context', 'rateLimits', 'cost'],
   })
+  // The cost rolls up like an odometer; give it time to land.
+  await clock.advance(5_000)
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
@@ -62,6 +65,47 @@ test('pane adds up model requests and shows the latest measurement', async ($, o
     expect(await ui.find({ type: 'Text', text: /5h .* 23\.5%/ })).toBeDefined()
     await ui.unmount()
   }
+})
+
+test('context bar burns as a flame on the terminal and stays text elsewhere', async ($, on) => {
+  const clock = mock.clock(on)
+  on('session.measure', (_$, e) => ({ changed: e.changed }))
+  await $.session.measure({
+    context: { tokens: 96_200, window: 200_000, percent: 48 },
+    rateLimits: [],
+    changed: ['context'],
+  })
+  await clock.advance(5_000)
+
+  const terminal = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await terminal.find({ type: 'Raster' })).toBeDefined()
+  await terminal.unmount()
+
+  const desktop = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await desktop.find({ type: 'Raster' })).toBeUndefined()
+  expect(await desktop.find({ type: 'Text', text: /█+░* 48%/ })).toBeDefined()
+  await desktop.unmount()
+})
+
+test('cost rolls toward the measured value', async ($, on) => {
+  const clock = mock.clock(on)
+  on('session.measure', (_$, e) => ({ changed: e.changed }))
+  await $.session.measure({
+    context: { tokens: 1_000, window: 200_000, percent: 1 },
+    rateLimits: [],
+    cost: { usd: 20 },
+    changed: ['context', 'cost'],
+  })
+
+  await clock.advance(100)
+  const early = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await early.find({ type: 'Text', text: /cost \$20\.00/ })).toBeUndefined()
+  await early.unmount()
+
+  await clock.advance(5_000)
+  const late = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await late.find({ type: 'Text', text: /cost \$20\.00/ })).toBeDefined()
+  await late.unmount()
 })
 
 test('pane says when there is no reading yet', async $ => {

@@ -19,12 +19,16 @@ export type Snapshot = {
   costUsd?: number
 }
 
+/** The context fill and cost the pane draws while they ease toward the snapshot. */
+export type Shown = { context: number; cost: number }
+
 declare module 'claude-code' {
   interface PluginState {
     'token-usage': {
       totals: Totals
       last: LastRequest | null
       snapshot: Snapshot | null
+      shown: Shown
     }
   }
 }
