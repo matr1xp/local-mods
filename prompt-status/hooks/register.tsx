@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionRateLimit } from 'claude-code'
 
 import type { Git, Limit, Reading } from '../types'
-import { FIRE_ROWS, fireCells, tween } from './fire'
+import { flowCells, tween } from './fire'
 
 const BAR_WIDTH = 10
 const TICK_MS = 60_000
@@ -47,14 +47,14 @@ const startTween = ($: EngineInterface) => {
   tweenTimer = timer
 }
 
-/** Animates the context flame while the band is mounted; stops once a blit is refused. */
+/** Animates the context bar while the band is mounted; stops once a blit is refused. */
 const startFire = ($: EngineInterface) => {
   if (fireTimer) return
   const timer = $.clock.every(80, () => {
     if (!bandId) return
     void Promise.all([read($, shown), $.clock.now()]).then(([s, ms]) =>
       $.ui
-        .blit({ requestId: bandId!, key: 'fire', cells: fireCells(BAR_WIDTH, s, ms / 1000) })
+        .blit({ requestId: bandId!, key: 'fire', cells: flowCells(BAR_WIDTH, s, ms / 1000) })
         .then(r => {
           if (r.deny && fireTimer === timer) {
             timer.cancel()
@@ -213,8 +213,8 @@ export const register: Register = on => {
         <Raster
           key="fire"
           columns={BAR_WIDTH}
-          rows={FIRE_ROWS}
-          cells={fireCells(BAR_WIDTH, await read($, shown), (await $.clock.now()) / 1000)}
+          rows={1}
+          cells={flowCells(BAR_WIDTH, await read($, shown), (await $.clock.now()) / 1000)}
         />
       ) : null
 
@@ -240,12 +240,12 @@ export const register: Register = on => {
             </Text>
           )}
         </Box>
-        <Box alignItems="flex-end">
+        <Box>
           <Text color={COLOR.label}>Context </Text>
           {contextPercent === null ? (
             <Text color={COLOR.label}>–</Text>
           ) : (
-            <Box alignItems="flex-end">
+            <Box>
               {flame ?? bar(contextPercent, COLOR.context)}
               <Text color={COLOR.context}> {contextPercent}%</Text>
             </Box>

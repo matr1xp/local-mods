@@ -60,9 +60,10 @@ test('band shows model, context fill and usage with its reset', async ($, on) =>
     expect(await ui.find({ type: 'Text', text: / 24%/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: / 89%/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /resets in 36m/ })).toBeDefined()
-    // The context bar is a flame on the terminal and text elsewhere; usage stays text.
+    // The context bar is a one-row animation on the terminal and text elsewhere; usage stays text.
     if (surface === 'terminal') {
-      expect(await ui.find({ type: 'Raster' })).toBeDefined()
+      const raster = await ui.find({ type: 'Raster', key: 'fire' })
+      expect(raster?.props.rows).toBe(1)
       expect(await ui.find({ type: 'Text', text: /^██$/ })).toBeUndefined()
     } else {
       expect(await ui.find({ type: 'Raster' })).toBeUndefined()

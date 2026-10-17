@@ -1,6 +1,6 @@
-// The animated context bar: a flame drawn as Raster cells, plus the odometer
-// easing for the cost. Adapted from burn-meter (OneWave-AI/claude-code-mods, MIT);
-// the same file lives in prompt-status, so keep the two in step.
+// The animated context bar as Raster cells, a tall flame or a one-row flow,
+// plus the odometer easing. Adapted from burn-meter (OneWave-AI/claude-code-mods,
+// MIT). The same file lives in token-usage and prompt-status: keep them identical.
 
 export const FIRE_ROWS = 3
 
@@ -86,6 +86,47 @@ export const fireCells = (columns: number, percent: number, t: number, rows = FI
     // A spark off the top now and then.
     if (height < 9 && wobble(x * 3.1, t * 1.7) > 0.86) {
       put(x, 0, Math.floor(t * 10 + x) % 2 ? 0xb7 : 0x2a, mix(LIME, GREEN, heat))
+    }
+  }
+  return toBase64(new Uint8Array(words.buffer))
+}
+
+// '▏▎▍▌▋▊▉█' by eighths, filling from the left.
+const LEFT_EIGHTHS = [0x20, 0x258f, 0x258e, 0x258d, 0x258c, 0x258b, 0x258a, 0x2589, 0x2588]
+
+/**
+ * One frame of the context bar as a single row, `columns` wide, at time `t`
+ * in seconds: filled to `percent`, bright bands flowing along the fill toward
+ * a leading edge that licks back and forth, sparks drifting just ahead of it.
+ */
+export const flowCells = (columns: number, percent: number, t: number): string => {
+  const heat = Math.min(1, Math.max(0, percent / 100))
+  const words = new Uint32Array(columns * 3)
+  const exact = heat * columns
+  // The edge flickers by up to most of a cell, never below a sliver of fill.
+  const tip = Math.min(columns, Math.max(0.25, exact + 0.75 * (wobble(exact, t) - 0.5)))
+  const put = (x: number, glyph: number, fg: number) => {
+    words[x * 3] = glyph
+    words[x * 3 + 1] = fg
+    words[x * 3 + 2] = DEFAULT
+  }
+  for (let x = 0; x < columns; x++) {
+    const cover = Math.min(1, Math.max(0, tip - x))
+    if (cover >= 1) {
+      const along = tip <= 1 ? 1 : x / (tip - 1)
+      const base = mix(MOSS, flame(along * heat), Math.min(1, along))
+      const wave = Math.pow(0.5 + 0.5 * Math.sin(x * 0.8 - t * 6), 3)
+      const hot = Math.max(0, 1 - (tip - 1 - x) / 2)
+      put(x, 0x2588, mix(mix(base, LIME, 0.5 * wave), MINT, 0.6 * hot))
+      continue
+    }
+    const eighths = Math.round(cover * 8)
+    if (eighths > 0) {
+      put(x, LEFT_EIGHTHS[eighths]!, MINT)
+    } else if (x - tip < 3 && wobble(x * 3.1, t * 1.7) > 0.8) {
+      put(x, Math.floor(t * 10 + x) % 2 ? 0xb7 : 0x2a, mix(LIME, GREEN, heat))
+    } else {
+      put(x, 0x2591, EMPTY) // ░
     }
   }
   return toBase64(new Uint8Array(words.buffer))

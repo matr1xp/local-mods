@@ -28,7 +28,7 @@ Renders above the prompt in every session:
 ![The prompt-status band: model and context window, directory and git branch on the first line; context fill and five-hour usage bars with the reset time on the second](docs/prompt-status.png)
 
 - The model name comes from the latest main-agent request, falling back to the `model` setting.
-- In the terminal the context bar is the same animated green flame as the token-usage pane, so the band is four rows tall; elsewhere it is a plain text bar.
+- In the terminal the context bar is animated in the token-usage pane's greens, on one row: bright bands flow along the fill toward a flickering leading edge. Elsewhere it is a plain text bar.
 - Usage shows the five-hour rate limit when it is reported, otherwise the fullest limit.
 - The git branch and dirty marker (`*`) refresh after each turn and once a minute. A detached HEAD shows its short commit hash.
 - The band hides itself while a survey is showing.
