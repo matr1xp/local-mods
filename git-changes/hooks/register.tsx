@@ -12,6 +12,8 @@ const MAX_ROWS = 500
 // One drawing holds 100,000 characters of text in all; the diff leaves room for the
 // header around it and is cut at a line past this.
 const MAX_DIFF_CHARS = 90_000
+// A diff longer than this is not reloaded by a poll while its file's counts hold still.
+const LARGE_DIFF_CHARS = 20_000
 // git's well-known empty tree: the diff base before the first commit.
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 // Polling must never take index.lock out from under the person's own git commands.
@@ -137,13 +139,20 @@ async function scan($: EngineInterface): Promise<Omit<Snapshot, 'fresh' | 'chang
 // Drops git's file header (Code reads hunks alone) and cuts what is past MAX_DIFF_CHARS
 // at a line, renumbering a hunk cut short so it still parses.
 export function hunksOf(out: string): Pick<FileDiff, 'hunks' | 'isTruncated'> {
-  const at = out.startsWith('@@') ? 0 : out.indexOf('\n@@') + 1
-  if (at === 0 && !out.startsWith('@@')) return { hunks: '', isTruncated: false }
-  const hunks = out.slice(at).replace(/\n$/, '')
+  const first = out.startsWith('@@') ? 0 : out.indexOf('\n@@') + 1
+  if (first === 0 && !out.startsWith('@@')) return { hunks: '', isTruncated: false }
+  const hunks = out.slice(first).replace(/\n$/, '')
   if (hunks.length <= MAX_DIFF_CHARS) return { hunks, isTruncated: false }
 
-  const lines = hunks.slice(0, hunks.lastIndexOf('\n', MAX_DIFF_CHARS)).split('\n')
-  const head = lines.findLastIndex(line => line.startsWith('@@'))
+  let lines = hunks.slice(0, hunks.lastIndexOf('\n', MAX_DIFF_CHARS)).split('\n')
+  let head = lines.findLastIndex(line => line.startsWith('@@'))
+  if (head === lines.length - 1) {
+    // The cut left the last hunk with a header and nothing under it.
+    if (head > 0) return { hunks: lines.slice(0, head).join('\n'), isTruncated: true }
+    // The only hunk starts with a line longer than a drawing (minified code): cut inside it.
+    lines = hunks.slice(0, MAX_DIFF_CHARS).split('\n')
+    head = 0
+  }
   const body = lines.slice(head + 1)
   const old = body.filter(line => line.startsWith(' ') || line.startsWith('-')).length
   const now = body.filter(line => line.startsWith(' ') || line.startsWith('+')).length
@@ -173,13 +182,49 @@ async function diffFile($: EngineInterface, root: string, file: ChangedFile): Pr
   return { ...hunksOf(ran.stdout), error: null }
 }
 
+// Bumped each time the person opens a diff or leaves it. A load that began under an older
+// generation is stale (Back, then the same file again) and must not write its result.
+let diffGeneration = 0
+// What the shown diff was last loaded from: a big diff is not re-run while this holds.
+let loadedFrom: { path: string; source: string } | undefined
+
+// What a file's diff is made from: its status, the commit it is diffed against, the rename
+// source and the file's content in the work tree, so an edit that keeps the counts shows.
+async function sourceOf($: EngineInterface, root: string, file: ChangedFile) {
+  const [head, blob] = await Promise.all([
+    git($, ['rev-parse', '-q', '--verify', 'HEAD'], root),
+    git($, ['hash-object', '--', file.path], root),
+  ])
+  // A deleted file has no content to hash.
+  const content = blob.exitCode === 0 ? blob.stdout.trim() : 'gone'
+  return [file.status, head.stdout.trim(), file.from ?? '', content].join('|')
+}
+
 // Reloads the diff on show: back to the list when its file no longer differs.
 async function loadDiff($: EngineInterface) {
+  // Taken before any await, so a view opened or left meanwhile makes this load stale.
+  const generation = diffGeneration
   const [snap, shown] = await Promise.all([read($, snapshot), read($, diff)])
   if (snap === null || shown === null) return
   const file = snap.files.find(candidate => candidate.path === shown.path)
   if (file === undefined) {
-    await update($, diff, current => (current?.path === shown.path ? null : current))
+    await update($, diff, current => (current?.path === shown.path && generation === diffGeneration ? null : current))
+    return
+  }
+  // A poll skips re-running git on a large diff while what it is made from holds still.
+  let source: string
+  try {
+    source = await sourceOf($, snap.root, file)
+  } catch {
+    source = ''
+  }
+  if (
+    source !== '' &&
+    shown.hunks !== null &&
+    shown.hunks.length > LARGE_DIFF_CHARS &&
+    loadedFrom?.path === file.path &&
+    loadedFrom.source === source
+  ) {
     return
   }
   let loaded: Omit<FileDiff, 'path'>
@@ -189,22 +234,27 @@ async function loadDiff($: EngineInterface) {
     loaded = { hunks: '', isTruncated: false, error: error instanceof Error ? error.message : String(error) }
   }
   // Keep the same value when nothing moved, so a poll does not redraw; and drop a load
-  // the person has since left (Back, or another file).
-  await update($, diff, current =>
-    current?.path !== file.path ||
-    (current.hunks === loaded.hunks && current.isTruncated === loaded.isTruncated && current.error === loaded.error)
+  // the person has since left (Back, or another file, or the same file reopened).
+  await update($, diff, current => {
+    if (generation !== diffGeneration || current?.path !== file.path) return current
+    loadedFrom = { path: file.path, source }
+    return current.hunks === loaded.hunks && current.isTruncated === loaded.isTruncated && current.error === loaded.error
       ? current
-      : { path: file.path, ...loaded },
-  )
+      : { path: file.path, ...loaded }
+  })
 }
 
 async function showDiff($: EngineInterface, path: string) {
+  diffGeneration++
+  loadedFrom = undefined
   await update($, diff, () => ({ path, hunks: null, isTruncated: false, error: null }))
   await $.ui.scroll({ in: PANE, to: 'start' }).catch(() => undefined)
   await loadDiff($)
 }
 
 async function showList($: EngineInterface, path: string) {
+  diffGeneration++
+  loadedFrom = undefined
   await update($, diff, () => null)
   await $.ui.scroll({ in: PANE, to: { key: `diff:${path}` } }).catch(() => undefined)
 }
@@ -291,6 +341,8 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'changes' }, async ($, e) => {
+    diffGeneration++
+    loadedFrom = undefined
     await update($, diff, () => null)
     await refresh($)
     await $.ui.open({ id: PANE, title: TITLE })

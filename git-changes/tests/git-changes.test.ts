@@ -27,8 +27,15 @@ const APP_DIFF =
   '@@ -1,2 +1,2 @@\n const a = 1\n-const b = 2\n+const b = 3\n'
 
 // A fake repo: a modified, a deleted, a binary, a renamed and an untracked file.
-// `diffs` holds what `git diff -- <path>` prints for a file; `ran` collects each git call.
-function fakeGit(on: On, numstat: { current: string }, diffs: Record<string, string> = {}, ran: string[] = []) {
+// `diffs` holds what `git diff -- <path>` prints for a file; `ran` collects each git call;
+// `repo` names the commit HEAD points at and a file's work-tree content, its diff when unset.
+function fakeGit(
+  on: On,
+  numstat: { current: string },
+  diffs: Record<string, string> = {},
+  ran: string[] = [],
+  repo: { head: string; contents: Record<string, string> } = { head: 'abc1234def', contents: {} },
+) {
   on('process.run', ($, e) => {
     const args = e.argv.slice(1).join(' ')
     ran.push(args)
@@ -37,6 +44,10 @@ function fakeGit(on: On, numstat: { current: string }, diffs: Record<string, str
     if (args === 'rev-parse --show-toplevel') return ok('/repo\n')
     if (args === 'symbolic-ref --short -q HEAD') return ok('feature/x\n')
     if (args === 'rev-parse --short -q --verify HEAD') return ok('abc1234\n')
+    if (args === 'rev-parse -q --verify HEAD') return ok(`${repo.head}\n`)
+    // A file's content stands in for its blob id.
+    const hashed = /^hash-object -- (.+)$/.exec(args)?.[1]
+    if (hashed !== undefined) return ok(`${repo.contents[hashed] ?? diffs[hashed] ?? ''}\n`)
     if (args === 'diff -M --numstat -z HEAD') return ok(numstat.current)
     if (args === 'diff -M --name-status -z HEAD') {
       return ok('M\0src/app.ts\0D\0old.ts\0M\0logo.png\0R100\0a.ts\0b.ts\0')
@@ -150,6 +161,91 @@ test('a diff too long to draw is cut at a line, its last hunk renumbered', async
   const kept = source.split('\n').length - 1
   expect(source.startsWith(`@@ -0,0 +1,${kept} @@\n+line 0\n`)).toBe(true)
   expect(await ui.find({ type: 'Text', text: /cut here/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a single line longer than a drawing is cut inside the line', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  const minified = `+${'x'.repeat(200_000)}`
+  fakeGit(on, { current: NUMSTAT }, { 'src/app.ts': `--- a/src/app.ts\n+++ b/src/app.ts\n@@ -0,0 +1 @@\n${minified}\n` })
+  await $.command.run(CHANGES)
+  const ui = await mountPane($)
+
+  await ui.press({ key: 'diff:src/app.ts' })
+  const source = String((await ui.find({ type: 'Code' }))?.props.source)
+  expect(source.length).toBeLessThan(100_000)
+  expect(source.startsWith('@@ -0,0 +1,1 @@\n+xxxx')).toBe(true)
+  expect(await ui.find({ type: 'Text', text: /cut here/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a cut that lands just after a hunk header drops the empty hunk', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  const first = `@@ -1,0 +1,1 @@\n+${'a'.repeat(1000)}`
+  const raw = `--- a/src/app.ts\n+++ b/src/app.ts\n${first}\n@@ -50,0 +51,1 @@\n+${'b'.repeat(200_000)}\n`
+  fakeGit(on, { current: NUMSTAT }, { 'src/app.ts': raw })
+  await $.command.run(CHANGES)
+  const ui = await mountPane($)
+
+  await ui.press({ key: 'diff:src/app.ts' })
+  expect((await ui.find({ type: 'Code' }))?.props.source).toBe(first)
+  expect(await ui.find({ type: 'Text', text: /cut here/ })).toBeDefined()
+  await ui.unmount()
+})
+
+// A large diff of src/app.ts whose counts stay +20000 -0 whatever `word` is.
+const largeDiff = (word: string) => {
+  const added = Array.from({ length: 20_000 }, (_, i) => `+${word} ${i}`).join('\n')
+  return `--- a/src/app.ts\n+++ b/src/app.ts\n@@ -0,0 +1,20000 @@\n${added}\n`
+}
+
+// A tool call, as after an Edit, with the pane up: the mod rescans and reloads the diff.
+function afterTool(on: On) {
+  on('tool.call', () => ({ result: {} }))
+  on('ui.panes', () => ({
+    value: [{ id: 'git-changes', title: 'Changes', isShown: true, isFocused: false, isPlaced: true }],
+  }))
+}
+
+test('a large diff is not re-run while its file holds still', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  const ran: string[] = []
+  fakeGit(on, { current: NUMSTAT }, { 'src/app.ts': largeDiff('line') }, ran)
+  afterTool(on)
+  await $.command.run(CHANGES)
+  const ui = await mountPane($)
+  await ui.press({ key: 'diff:src/app.ts' })
+
+  const diffRuns = () => ran.filter(args => args.startsWith('diff --no-color')).length
+  const before = diffRuns()
+  await $.tool.call({ tool: 'Bash', command: 'ls' })
+  expect(diffRuns()).toBe(before)
+  await ui.unmount()
+})
+
+test('a large diff reloads when an edit keeps its counts, or HEAD moves', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  const diffs = { 'src/app.ts': largeDiff('line') }
+  const repo = { head: 'abc1234def', contents: {} as Record<string, string> }
+  fakeGit(on, { current: NUMSTAT }, diffs, [], repo)
+  afterTool(on)
+  await $.command.run(CHANGES)
+  const ui = await mountPane($)
+  await ui.press({ key: 'diff:src/app.ts' })
+  const source = async () => String((await ui.find({ type: 'Code' }))?.props.source)
+  expect(await source()).toContain('+line 0\n')
+
+  // The same +/- counts, other text.
+  diffs['src/app.ts'] = largeDiff('word')
+  await $.tool.call({ tool: 'Bash', command: 'ls' })
+  expect(await source()).toContain('+word 0\n')
+
+  // An amend: the same work tree and counts, diffed against another commit.
+  repo.contents['src/app.ts'] = diffs['src/app.ts']
+  diffs['src/app.ts'] = largeDiff('amended')
+  repo.head = 'fed4321cba'
+  await $.tool.call({ tool: 'Bash', command: 'ls' })
+  expect(await source()).toContain('+amended 0\n')
   await ui.unmount()
 })
 
