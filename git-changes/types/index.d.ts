@@ -5,6 +5,8 @@
 export type ChangedFile = {
   /** Repo-relative path (the new path for a rename). */
   path: string
+  /** The path it was renamed or copied from (R, C); absent otherwise. */
+  from?: string
   /** git's status letter (M, A, D, R, C, T, U), or `?` for untracked. */
   status: string
   /** Lines added; null when binary or not counted. */
@@ -26,8 +28,18 @@ export type Snapshot = {
   error: string | null
 }
 
+/** The file the pane shows the diff of in place of the list. */
+export type FileDiff = {
+  path: string
+  /** Unified-diff hunks from the first `@@`, '' when there are none; null while loading. */
+  hunks: string | null
+  /** True when the hunks were cut to what one drawing holds. */
+  isTruncated: boolean
+  error: string | null
+}
+
 declare module 'claude-code' {
   interface PluginState {
-    'git-changes': { snapshot: Snapshot | null }
+    'git-changes': { snapshot: Snapshot | null; diff: FileDiff | null }
   }
 }

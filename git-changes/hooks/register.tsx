@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { ChangedFile, Snapshot } from '../types'
+import type { ChangedFile, FileDiff, Snapshot } from '../types'
 
 const PANE = 'git-changes'
 const TITLE = 'Changes'
@@ -9,6 +9,9 @@ const POLL_MS = 4000
 // Untracked files are counted one `git diff --no-index` each; past this many they show as "new".
 const MAX_UNTRACKED_COUNTED = 40
 const MAX_ROWS = 500
+// One drawing holds 100,000 characters of text in all; the diff leaves room for the
+// header around it and is cut at a line past this.
+const MAX_DIFF_CHARS = 90_000
 // git's well-known empty tree: the diff base before the first commit.
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 // Polling must never take index.lock out from under the person's own git commands.
@@ -26,6 +29,8 @@ const STATUS_COLOR: Record<string, string> = {
 }
 
 const snapshot = atom({ plugin: 'git-changes', key: 'snapshot' } as const, null)
+// The file whose diff the pane shows in place of the list; null shows the list.
+const diff = atom({ plugin: 'git-changes', key: 'diff' } as const, null)
 
 type Stat = { added: number | null; deleted: number | null; isBinary: boolean }
 
@@ -60,16 +65,21 @@ export function parseNumstat(out: string): Map<string, Stat> {
 }
 
 // `--name-status -z`: "M\0path\0", or "R100\0old\0new\0" for a rename or copy.
-export function parseNameStatus(out: string): Map<string, string> {
+export function parseNameStatus(out: string): Map<string, { status: string; from?: string }> {
   const tokens = out.split('\0')
-  const statuses = new Map<string, string>()
+  const statuses = new Map<string, { status: string; from?: string }>()
   for (let i = 0; i < tokens.length; i++) {
     const code = tokens[i]
     if (code === undefined || code === '') continue
     const letter = code.charAt(0)
-    if (letter === 'R' || letter === 'C') i++
-    i++
-    statuses.set(tokens[i] ?? '', letter)
+    if (letter === 'R' || letter === 'C') {
+      const from = tokens[i + 1] ?? ''
+      i += 2
+      statuses.set(tokens[i] ?? '', { status: letter, from })
+    } else {
+      i++
+      statuses.set(tokens[i] ?? '', { status: letter })
+    }
   }
   return statuses
 }
@@ -107,7 +117,7 @@ async function scan($: EngineInterface): Promise<Omit<Snapshot, 'fresh' | 'chang
   const stats = parseNumstat(numstat.stdout)
   const statuses = parseNameStatus(nameStatus.stdout)
   const files: ChangedFile[] = [...stats]
-    .map(([path, stat]) => ({ path, status: statuses.get(path) ?? 'M', ...stat }))
+    .map(([path, stat]) => ({ path, status: 'M', ...statuses.get(path), ...stat }))
     .sort((a, b) => a.path.localeCompare(b.path))
 
   const untracked = others.stdout.split('\0').filter(Boolean).sort()
@@ -124,16 +134,79 @@ async function scan($: EngineInterface): Promise<Omit<Snapshot, 'fresh' | 'chang
   return { root, branch, files, error: null }
 }
 
-// Opens a file in its default app: `open` on macOS, `xdg-open` where there is none.
-async function openFile($: EngineInterface, root: string, path: string) {
-  const abs = `${root}/${path}`
-  try {
-    const ran = await $.process.run(['open', abs], { timeoutMs: 10_000 })
-    if (ran.exitCode === 0) return
-  } catch {
-    // no `open` here: try the freedesktop one
+// Drops git's file header (Code reads hunks alone) and cuts what is past MAX_DIFF_CHARS
+// at a line, renumbering a hunk cut short so it still parses.
+export function hunksOf(out: string): Pick<FileDiff, 'hunks' | 'isTruncated'> {
+  const at = out.startsWith('@@') ? 0 : out.indexOf('\n@@') + 1
+  if (at === 0 && !out.startsWith('@@')) return { hunks: '', isTruncated: false }
+  const hunks = out.slice(at).replace(/\n$/, '')
+  if (hunks.length <= MAX_DIFF_CHARS) return { hunks, isTruncated: false }
+
+  const lines = hunks.slice(0, hunks.lastIndexOf('\n', MAX_DIFF_CHARS)).split('\n')
+  const head = lines.findLastIndex(line => line.startsWith('@@'))
+  const body = lines.slice(head + 1)
+  const old = body.filter(line => line.startsWith(' ') || line.startsWith('-')).length
+  const now = body.filter(line => line.startsWith(' ') || line.startsWith('+')).length
+  lines[head] = (lines[head] ?? '').replace(
+    /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/,
+    (_, a: string, c: string) => `@@ -${a},${old} +${c},${now} @@`,
+  )
+  return { hunks: lines.join('\n'), isTruncated: true }
+}
+
+async function diffFile($: EngineInterface, root: string, file: ChangedFile): Promise<Omit<FileDiff, 'path'>> {
+  if (file.isBinary) return { hunks: '', isTruncated: false, error: null }
+  const flags = ['diff', '--no-color', '--no-ext-diff']
+  let ran
+  if (file.status === '?') {
+    ran = await git($, [...flags, '--no-index', '--', '/dev/null', file.path], root)
+  } else {
+    const head = await git($, ['rev-parse', '--short', '-q', '--verify', 'HEAD'], root)
+    const base = head.exitCode === 0 ? 'HEAD' : EMPTY_TREE
+    const paths = file.from === undefined ? [file.path] : [file.from, file.path]
+    ran = await git($, [...flags, '-M', base, '--', ...paths], root)
   }
-  await $.process.run(['xdg-open', abs], { timeoutMs: 10_000 }).catch(() => undefined)
+  // `--no-index` exits 1 when the files differ, which they do.
+  if (ran.exitCode > 1) {
+    return { hunks: '', isTruncated: false, error: ran.stderr.trim() || 'git diff failed' }
+  }
+  return { ...hunksOf(ran.stdout), error: null }
+}
+
+// Reloads the diff on show: back to the list when its file no longer differs.
+async function loadDiff($: EngineInterface) {
+  const [snap, shown] = await Promise.all([read($, snapshot), read($, diff)])
+  if (snap === null || shown === null) return
+  const file = snap.files.find(candidate => candidate.path === shown.path)
+  if (file === undefined) {
+    await update($, diff, current => (current?.path === shown.path ? null : current))
+    return
+  }
+  let loaded: Omit<FileDiff, 'path'>
+  try {
+    loaded = await diffFile($, snap.root, file)
+  } catch (error) {
+    loaded = { hunks: '', isTruncated: false, error: error instanceof Error ? error.message : String(error) }
+  }
+  // Keep the same value when nothing moved, so a poll does not redraw; and drop a load
+  // the person has since left (Back, or another file).
+  await update($, diff, current =>
+    current?.path !== file.path ||
+    (current.hunks === loaded.hunks && current.isTruncated === loaded.isTruncated && current.error === loaded.error)
+      ? current
+      : { path: file.path, ...loaded },
+  )
+}
+
+async function showDiff($: EngineInterface, path: string) {
+  await update($, diff, () => ({ path, hunks: null, isTruncated: false, error: null }))
+  await $.ui.scroll({ in: PANE, to: 'start' }).catch(() => undefined)
+  await loadDiff($)
+}
+
+async function showList($: EngineInterface, path: string) {
+  await update($, diff, () => null)
+  await $.ui.scroll({ in: PANE, to: { key: `diff:${path}` } }).catch(() => undefined)
 }
 
 const signature = (file: ChangedFile) => `${file.status}|${file.added}|${file.deleted}`
@@ -177,6 +250,7 @@ function refresh($: EngineInterface): Promise<void> {
       do {
         isQueued = false
         await scanAndStore($)
+        await loadDiff($)
       } while (isQueued)
     } finally {
       running = undefined
@@ -217,6 +291,7 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'changes' }, async ($, e) => {
+    await update($, diff, () => null)
     await refresh($)
     await $.ui.open({ id: PANE, title: TITLE })
     const snap = await read($, snapshot)
@@ -243,8 +318,8 @@ export const register: Register = on => {
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
-    const snap = await read($, snapshot)
+    const { Box, Text, Button, Code } = $.ui.resolve(e)
+    const [snap, open] = await Promise.all([read($, snapshot), read($, diff)])
     const width = e.props.bodyColumns
 
     if (snap === null) {
@@ -255,6 +330,38 @@ export const register: Register = on => {
         <Box flexDirection="column">
           <Text color="error">{snap.error}</Text>
           <Button key="refresh" label="↻ Refresh" hotkey="r" onPress={() => refresh($)} />
+        </Box>
+      )
+    }
+
+    const statusText = (file: ChangedFile) => (file.status === '?' ? '??' : file.status).padEnd(2)
+
+    const viewed = open === null ? undefined : snap.files.find(file => file.path === open.path)
+    if (open !== null && viewed !== undefined) {
+      const body =
+        open.error !== null ? (
+          <Text color="error">{open.error}</Text>
+        ) : open.hunks === null ? (
+          <Text dimColor>Loading diff…</Text>
+        ) : open.hunks === '' ? (
+          <Text dimColor>{viewed.isBinary ? 'Binary file: no text diff' : 'No text changes to show'}</Text>
+        ) : (
+          <Code source={open.hunks} path={viewed.path} format="diff" />
+        )
+      return (
+        <Box flexDirection="column">
+          <Box flexDirection="row">
+            <Button key="back" label="← Back" hotkey="b" onPress={() => showList($, viewed.path)} />
+            <Text> </Text>
+            <Text color={STATUS_COLOR[viewed.status] ?? 'text'} bold>
+              {statusText(viewed)}{' '}
+            </Text>
+            <Text wrap="truncate-start">{viewed.path}</Text>
+          </Box>
+          {viewed.from !== undefined && <Text dimColor>from {viewed.from}</Text>}
+          <Text dimColor>{'─'.repeat(Math.max(1, width))}</Text>
+          {body}
+          {open.isTruncated && <Text dimColor>…cut here: the rest is too long to show</Text>}
         </Box>
       )
     }
@@ -307,17 +414,12 @@ export const register: Register = on => {
         <Box flexDirection="row">
           <Text color="claude">{isFresh ? '●' : ' '}</Text>
           <Text color={STATUS_COLOR[file.status] ?? 'text'} bold>
-            {(file.status === '?' ? '??' : file.status).padEnd(2)}{' '}
+            {statusText(file)}{' '}
           </Text>
           <Box width={pathWidth}>
-            {/* A deleted file has nothing left on disk to open. */}
-            {file.status === 'D' ? (
-              label
-            ) : (
-              <Button key={`open:${file.path}`} plain onPress={() => openFile($, snap.root, file.path)}>
-                {label}
-              </Button>
-            )}
+            <Button key={`diff:${file.path}`} plain onPress={() => showDiff($, file.path)}>
+              {label}
+            </Button>
           </Box>
           <Text> </Text>
           <Text color={file.added === null ? 'subtle' : 'success'} bold={isFresh}>
