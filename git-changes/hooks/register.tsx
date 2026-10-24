@@ -200,8 +200,18 @@ async function sourceOf($: EngineInterface, root: string, file: ChangedFile) {
   return [file.status, head.stdout.trim(), file.from ?? '', content].join('|')
 }
 
+// One diff load at a time, in the order asked: opening a file can land while a poll's load
+// is mid-way, and a later load reads later state, so it must also be the last to write.
+let loading: Promise<void> = Promise.resolve()
+
+function loadDiff($: EngineInterface): Promise<void> {
+  const load = loading.then(() => loadDiffNow($))
+  loading = load.catch(() => undefined)
+  return load
+}
+
 // Reloads the diff on show: back to the list when its file no longer differs.
-async function loadDiff($: EngineInterface) {
+async function loadDiffNow($: EngineInterface) {
   // Taken before any await, so a view opened or left meanwhile makes this load stale.
   const generation = diffGeneration
   const [snap, shown] = await Promise.all([read($, snapshot), read($, diff)])

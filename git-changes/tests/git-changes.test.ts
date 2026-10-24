@@ -2,6 +2,9 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { On, ProcessRunResult } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
+// The test runner has timers; the mod's typings name no host, so they are declared here.
+declare function setTimeout(callback: () => void, ms: number): unknown
+
 const PANE_PROPS = {
   title: 'Changes',
   isFocused: false,
@@ -28,17 +31,30 @@ const APP_DIFF =
 
 // A fake repo: a modified, a deleted, a binary, a renamed and an untracked file.
 // `diffs` holds what `git diff -- <path>` prints for a file; `ran` collects each git call;
-// `repo` names the commit HEAD points at and a file's work-tree content, its diff when unset.
+// `repo` names the commit HEAD points at and a file's work-tree content, its diff when unset;
+// a git call named in `repo.held` is answered as it is made, but only once that promise settles.
+type Repo = { head: string; contents: Record<string, string>; held?: Record<string, Promise<void>> }
 function fakeGit(
   on: On,
   numstat: { current: string },
   diffs: Record<string, string> = {},
   ran: string[] = [],
-  repo: { head: string; contents: Record<string, string> } = { head: 'abc1234def', contents: {} },
+  repo: Repo = { head: 'abc1234def', contents: {} },
 ) {
-  on('process.run', ($, e) => {
+  on('process.run', async (_$, e) => {
     const args = e.argv.slice(1).join(' ')
     ran.push(args)
+    const answer = answerGit(args)
+    const held = repo.held?.[args]
+    if (held !== undefined) {
+      delete repo.held?.[args]
+      await held
+    }
+    return answer
+  })
+  on('ui.open', () => ({ value: { isPlaced: true } as const }))
+
+  function answerGit(args: string) {
     const shown = /^diff --no-color --no-ext-diff (?:-M HEAD|--no-index) -- (.+)$/.exec(args)?.[1]
     if (shown !== undefined) return ok(diffs[shown] ?? '', shown.startsWith('/dev/null') ? 1 : 0)
     if (args === 'rev-parse --show-toplevel') return ok('/repo\n')
@@ -57,8 +73,7 @@ function fakeGit(
       return ok('5\t0\t\0/dev/null\0notes.md\0', 1)
     }
     throw new Error(`unexpected git ${args}`)
-  })
-  on('ui.open', () => ({ value: { isPlaced: true } as const }))
+  }
 }
 
 const NUMSTAT = '12\t3\tsrc/app.ts\0' + '0\t7\told.ts\0' + '-\t-\tlogo.png\0' + '0\t0\t\0a.ts\0b.ts\0'
@@ -226,7 +241,7 @@ test('a large diff is not re-run while its file holds still', async ($, on) => {
 test('a large diff reloads when an edit keeps its counts, or HEAD moves', async ($, on) => {
   mock.clock(on, { now: 0 })
   const diffs = { 'src/app.ts': largeDiff('line') }
-  const repo = { head: 'abc1234def', contents: {} as Record<string, string> }
+  const repo: Repo = { head: 'abc1234def', contents: {} }
   fakeGit(on, { current: NUMSTAT }, diffs, [], repo)
   afterTool(on)
   await $.command.run(CHANGES)
@@ -246,6 +261,34 @@ test('a large diff reloads when an edit keeps its counts, or HEAD moves', async 
   repo.head = 'fed4321cba'
   await $.tool.call({ tool: 'Bash', command: 'ls' })
   expect(await source()).toContain('+amended 0\n')
+  await ui.unmount()
+})
+
+test('a diff load that finishes late does not overwrite a newer one', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  const diffs = { 'src/app.ts': APP_DIFF }
+  // The load from opening the file reads git first and answers last, so a poll overtakes it.
+  let release = () => {}
+  const held = { 'diff --no-color --no-ext-diff -M HEAD -- src/app.ts': new Promise<void>(r => (release = r)) }
+  const ran: string[] = []
+  fakeGit(on, { current: NUMSTAT }, diffs, ran, { head: 'abc1234def', contents: {}, held })
+  afterTool(on)
+  await $.command.run(CHANGES)
+  const ui = await mountPane($)
+  const tick = () => new Promise<void>(resolve => setTimeout(resolve, 0))
+  const until = async (args: string, count: number) => {
+    for (let i = 0; i < 1000 && ran.filter(each => each === args).length < count; i++) await tick()
+  }
+  const press = ui.press({ key: 'diff:src/app.ts' })
+  await until('diff --no-color --no-ext-diff -M HEAD -- src/app.ts', 1)
+  diffs['src/app.ts'] = APP_DIFF.replace('const b = 3', 'const b = 4')
+  // The poll scans, then gets as far with its own load as it may before the first answers.
+  const call = $.tool.call({ tool: 'Bash', command: 'ls' })
+  await until('diff --no-index --numstat -z -- /dev/null notes.md', 2)
+  for (let i = 0; i < 20; i++) await tick()
+  release()
+  await Promise.all([press, call])
+  expect((await ui.find({ type: 'Code' }))?.props.source).toContain('+const b = 4')
   await ui.unmount()
 })
 

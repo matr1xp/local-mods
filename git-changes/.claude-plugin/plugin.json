@@ -1,6 +1,6 @@
 {
   "name": "git-changes",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "A side pane listing the files changed in the working tree, with colored git diff stats",
   "author": {
     "name": "Marlon Santos"
